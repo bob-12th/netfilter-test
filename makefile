@@ -1,10 +1,11 @@
-
+LDLIBS += -lpcap -lnetfilter_queue
 
 all: netfilter-test
 
-main.o: main.cpp
+netfilter-test.o: netfilter-test.cpp
 
-netfilter-test: main.o
+netfilter-test: netfilter-test.o
+	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 clean:
 	rm -f netfilter-test *.o

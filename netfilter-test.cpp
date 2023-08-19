@@ -8,6 +8,17 @@
 
 #include <libnetfilter_queue/libnetfilter_queue.h>
 
+void dump(unsigned char* buf, int size) {
+	int i;
+	for (i = 0; i < size; i++) {
+		if (i != 0 && i % 16 == 0)
+			printf("\n");
+		printf("%02X ", buf[i]);
+	}
+	printf("\n");
+}
+
+
 /* returns packet id */
 static u_int32_t print_pkt (struct nfq_data *tb)
 {
@@ -55,8 +66,11 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 		printf("physoutdev=%u ", ifi);
 
 	ret = nfq_get_payload(tb, &data);
-	if (ret >= 0)
+	if (ret >= 0){
 		printf("payload_len=%d\n", ret);
+		dump(data, ret);
+	}
+		
 
 	fputc('\n', stdout);
 
