@@ -12,79 +12,15 @@
 #include <netinet/ether.h>  
 #include <string.h>
 
-
-void dump(unsigned char* buf, int size) {
-	int i;
-	for (i = 0; i < size; i++) {
-		if (i != 0 && i % 16 == 0)
-			printf("\n");
-		printf("%02X ", buf[i]);
-	}
-	printf("\n");
-}
-
-
-/* returns packet id */
-static u_int32_t print_pkt (struct nfq_data *tb)
-{
-	int id = 0;
-	struct nfqnl_msg_packet_hdr *ph;
-	struct nfqnl_msg_packet_hw *hwph;
-	u_int32_t mark,ifi;
-	int ret;
-	unsigned char *data;
-
-	ph = nfq_get_msg_packet_hdr(tb);
-	if (ph) {
-		id = ntohl(ph->packet_id);
-		printf("hw_protocol=0x%04x hook=%u id=%u ",
-			ntohs(ph->hw_protocol), ph->hook, id);
-	}
-
-	hwph = nfq_get_packet_hw(tb);
-	if (hwph) {
-		int i, hlen = ntohs(hwph->hw_addrlen);
-
-		printf("hw_src_addr=");
-		for (i = 0; i < hlen-1; i++)
-			printf("%02x:", hwph->hw_addr[i]);
-		printf("%02x ", hwph->hw_addr[hlen-1]);
-	}
-
-	mark = nfq_get_nfmark(tb);
-	if (mark)
-		printf("mark=%u ", mark);
-
-	ifi = nfq_get_indev(tb);
-	if (ifi)
-		printf("indev=%u ", ifi);
-
-	ifi = nfq_get_outdev(tb);
-	if (ifi)
-		printf("outdev=%u ", ifi);
-	ifi = nfq_get_physindev(tb);
-	if (ifi)
-		printf("physindev=%u ", ifi);
-
-	ifi = nfq_get_physoutdev(tb);
-	if (ifi)
-		printf("physoutdev=%u ", ifi);
-
-	ret = nfq_get_payload(tb, &data);
-	if (ret >= 0)
-		printf("payload_len=%d\n", ret);
-	dump(data,ret);
-	fputc('\n', stdout);
-
-	return id;
-}
-
+char* banned_host;
 
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 	      struct nfq_data *nfa, void *data)
 {
 	u_int32_t id = print_pkt(nfa);
 	unsigned char *payload;
+	int flag = NF_ACCEPT;
+
 	printf("entering callback\n");
 
 	nfq_get_payload(nfa ,&payload);
@@ -104,7 +40,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 		if (start_of_host != NULL) {
 			start_of_host += strlen("Host: ");
 			
-			char *end_of_host = strchr(host_field, '\r');
+			char *end_of_host = strchr(start_of_host, '\r');
 			if (end_of_host != NULL) {
 				int host_len = end_of_host - start_of_host;
 
@@ -113,23 +49,50 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
                 host[host_len] = '\0';
 
 				printf("Extracted Host: %s\n", host);
+				
 
-                free(host);
+				if( strcmp(host, banned_host) == 0)
+				{
+					flag = NF_DROP;
+					printf("[*] %s is blocked..\n",host);
+				}
+				free(host);
 			}
 		}
 	}
+	return nfq_set_verdict(qh, id, flag, 0, NULL);
+}
 
-	return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
+void setIptables()
+{
+	printf("[*] execute \"sudo iptables -F\"\n");
+	system("sudo iptables -F");
+
+	printf("[*] execute \"sudo iptables -A OUTPUT -j NFQUEUE\n");
+    system("sudo iptables -A OUTPUT -j NFQUEUE");
+
+	printf("[*] execute \"sudo iptables -A INPUT -j NFQUEUE\n");
+    system("sudo iptables -A INPUT -j NFQUEUE");
+}
+
+void resetIptables()
+{
+	printf("[*] execute \"sudo iptables -F\"\n");
+	system("sudo iptables -F");
 }
 
 int main(int argc, char **argv)
 {
+	setIptables();
+
 	struct nfq_handle *h;
 	struct nfq_q_handle *qh;
 	struct nfnl_handle *nh;
 	int fd;
 	int rv;
 	char buf[4096] __attribute__ ((aligned));
+
+	banned_host = argv[1];
 
 	printf("opening library handle\n");
 	h = nfq_open();
@@ -166,6 +129,7 @@ int main(int argc, char **argv)
 	fd = nfq_fd(h);
 
 	for (;;) {
+		setIptables();
 		if ((rv = recv(fd, buf, sizeof(buf), 0)) >= 0) {
 			printf("pkt received\n");
 			nfq_handle_packet(h, buf, rv);
@@ -184,6 +148,7 @@ int main(int argc, char **argv)
 		}
 		perror("recv failed");
 		break;
+		resetIptables();
 	}
 
 	printf("unbinding from queue 0\n");
