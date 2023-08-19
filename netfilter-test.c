@@ -66,7 +66,8 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 		printf("physoutdev=%u ", ifi);
 
 	ret = nfq_get_payload(tb, &data);
-	if (ret >= 0){
+	if (ret >= 0)
+	{
 		printf("payload_len=%d\n", ret);
 		dump(data, ret);
 	}
