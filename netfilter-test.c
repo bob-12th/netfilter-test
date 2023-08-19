@@ -3,10 +3,15 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <linux/types.h>
-#include <linux/netfilter.h>		/* for NF_ACCEPT */
+#include <linux/netfilter.h>
 #include <errno.h>
-
 #include <libnetfilter_queue/libnetfilter_queue.h>
+
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <netinet/ether.h>  
+#include <string.h>
+
 
 void dump(unsigned char* buf, int size) {
 	int i;
@@ -67,12 +72,8 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 
 	ret = nfq_get_payload(tb, &data);
 	if (ret >= 0)
-	{
 		printf("payload_len=%d\n", ret);
-		dump(data, ret);
-	}
-		
-
+	dump(data,ret);
 	fputc('\n', stdout);
 
 	return id;
@@ -83,7 +84,41 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 	      struct nfq_data *nfa, void *data)
 {
 	u_int32_t id = print_pkt(nfa);
+	unsigned char *payload;
 	printf("entering callback\n");
+
+	nfq_get_payload(nfa ,&payload);
+
+	printf("%02x \n",payload[40]);
+
+	struct iphdr *ip_header = (struct iphdr *)payload;
+	struct tcphdr *tcp_header = (struct tcphdr *)(payload + ip_header->ihl * 4);
+
+	int tcp_header_len = tcp_header->doff * 4;
+
+	unsigned char *tcp_payload = payload + ip_header->ihl * 4 + tcp_header_len;
+
+	if (ntohs(tcp_header->dest) == 80) {
+		char *http_header = (char *)tcp_payload;
+		char *start_of_host = strstr(http_header, "Host:");
+		if (start_of_host != NULL) {
+			start_of_host += strlen("Host: ");
+			
+			char *end_of_host = strchr(host_field, '\r');
+			if (end_of_host != NULL) {
+				int host_len = end_of_host - start_of_host;
+
+				char *host = (char *)malloc(host_len + 1);
+                strncpy(host, start_of_host, host_len);
+                host[host_len] = '\0';
+
+				printf("Extracted Host: %s\n", host);
+
+                free(host);
+			}
+		}
+	}
+
 	return nfq_set_verdict(qh, id, NF_ACCEPT, 0, NULL);
 }
 
@@ -166,3 +201,4 @@ int main(int argc, char **argv)
 
 	exit(0);
 }
+
