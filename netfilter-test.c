@@ -12,7 +12,7 @@
 #include <netinet/ether.h>  
 #include <string.h>
 
-char* banned_host;
+char* malicious_host;
 
 void dump(unsigned char* buf, int size) {
 	int i;
@@ -84,7 +84,6 @@ static u_int32_t print_pkt (struct nfq_data *tb)
 static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 	      struct nfq_data *nfa, void *data)
 {
-//	u_int32_t id = print_pkt(nfa);
 	u_int32_t id = ntohl((nfq_get_msg_packet_hdr(nfa))->packet_id);
 	unsigned char *payload;
 	int flag = NF_ACCEPT;
@@ -117,7 +116,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 
 				printf("[*] extracted host from  pkt : %s\n", host);			
 
-				if( strcmp(host, banned_host) == 0)
+				if( strcmp(host, malicious_host) == 0)
 				{
 					flag = NF_DROP;
 					printf("[*] %s is blocked..\n",host);
@@ -154,7 +153,7 @@ int main(int argc, char **argv)
 	char buf[4096] __attribute__ ((aligned));
 	
 	// set dangerous host
-	banned_host = argv[1];
+	malicious_host = argv[1];
 
 	printf("[*] opening library handle\n");
 	h = nfq_open();
