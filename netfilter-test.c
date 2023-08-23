@@ -11,8 +11,10 @@
 #include <netinet/tcp.h>
 #include <netinet/ether.h>  
 #include <string.h>
+#include <signal.h>
 
 char* malicious_host;
+int ctrlC = 0;
 
 void dump(unsigned char* buf, int size) {
 	int i;
@@ -26,6 +28,7 @@ void dump(unsigned char* buf, int size) {
 
 
 /* returns packet id */
+// unused
 static u_int32_t print_pkt (struct nfq_data *tb)
 {
 	int id = 0;
@@ -90,7 +93,7 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 
 //	printf("entering callback\n");
 
-	nfq_get_payload(nfa ,&payload);
+	int payload_len = nfq_get_payload(nfa ,&payload);
 	
 	// use ip/tcp header to access http header
 	struct iphdr *ip_header = (struct iphdr *)payload;
@@ -109,19 +112,15 @@ static int cb(struct nfq_q_handle *qh, struct nfgenmsg *nfmsg,
 			char *end_of_host = strchr(start_of_host, '\r');
 			if (end_of_host != NULL) {
 				int host_len = end_of_host - start_of_host;
+				printf("host len : %d\n",host_len);
 
-				char *host = (char *)malloc(host_len + 1);
-                strncpy(host, start_of_host, host_len);
-                host[host_len] = '\0';
-
-				printf("[*] extracted host from  pkt : %s\n", host);			
-
-				if( strcmp(host, malicious_host) == 0)
+				printf("[*] extracted host from  pkt : %s\n", start_of_host);
+				start_of_host[host_len] = '\0';
+				if( strncmp(start_of_host, malicious_host, host_len) == 0)
 				{
 					flag = NF_DROP;
-					printf("[*] %s is blocked..\n",host);
+					printf("[*] %s is blocked..\n",start_of_host);
 				}
-				free(host);
 			}
 		}
 	}
@@ -141,8 +140,27 @@ void setIptables()
     system("sudo iptables -A INPUT -j NFQUEUE");
 }
 
+void resetIptables()
+{
+	printf("[*] execute \"sudo iptables -F\n");
+    system("sudo iptables -F");
+}
+
+void sig_handler(int signal)
+{
+	if (signal == SIGINT) {
+        ctrlC = 1;  // Set the flag indicating Ctrl+C was pressed
+        resetIptables();   // Call the resetIptables function
+        printf("[*] Ctrl+C pressed. stop program...\n");
+        exit(0);  // Exit the program
+    }
+}
+
+
 int main(int argc, char **argv)
 {
+	signal(SIGINT, sig_handler);
+	
 	setIptables();
 
 	struct nfq_handle *h;
@@ -190,6 +208,11 @@ int main(int argc, char **argv)
 	fd = nfq_fd(h);
 
 	for (;;) {
+		if (ctrlC)
+		{
+			break;
+		}
+
 		if ((rv = recv(fd, buf, sizeof(buf), 0)) >= 0) {
 	//		printf("pkt received\n");
 			nfq_handle_packet(h, buf, rv);
